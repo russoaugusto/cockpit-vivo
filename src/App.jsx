@@ -566,10 +566,18 @@ const STATUS_BADGE = {
   sem_acao:         { txt: "⏸️ sem ação",         cor: C.textFaint },
   perdido:          { txt: "❌ perdido",          cor: C.red },
   outro:            { txt: "• outro",            cor: C.textDim },
-	sem_status:       { txt: "— sem status",        cor: C.textFaint },
+  sem_status:       { txt: "— sem status",        cor: C.textFaint },
+  autorizou_whatsapp: { txt: "📲 autorizou whatsapp", cor: C.teal },
+  recusou:            { txt: "🚫 recusou",            cor: C.red },
+  nao_atende:         { txt: "📵 não atende",         cor: C.amber },
 
 };
-function MailingTab({ leads, setLeads, onUseLead }) {
+const cnpjKey = (cnpj) => (cnpj || "").replace(/\D/g, "");
+function statusEfetivo(l, statusManual) {
+  const override = statusManual && statusManual[cnpjKey(l.cnpj)];
+  return override || statusLead(l);
+}
+function MailingTab({ leads, setLeads, onUseLead, statusManual = {}, onSetStatus }) {
   const fileRef = useRef(null);
   const [sortBy, setSortBy] = useState("prioridade");
   const [busca, setBusca] = useState("");
@@ -625,14 +633,14 @@ function MailingTab({ leads, setLeads, onUseLead }) {
   };
 
   const stats = useMemo(() => {
-    const s = { proposta_enviada: 0, renovado: 0, sem_acao: 0, perdido: 0, outro: 0, sem_status: 0 };
-    leads.forEach((l) => { s[statusLead(l)] += 1; });
+    const s = { proposta_enviada: 0, renovado: 0, sem_acao: 0, perdido: 0, outro: 0, sem_status: 0, autorizou_whatsapp: 0, recusou: 0, nao_atende: 0 };
+    leads.forEach((l) => { s[statusEfetivo(l, statusManual)] += 1; });
     return s;
-  }, [leads]);
+  }, [leads, statusManual]);
 
   const sorted = useMemo(() => {
     let arr = [...leads];
-    if (filtroStatus !== "todos") arr = arr.filter((l) => statusLead(l) === filtroStatus);
+    if (filtroStatus !== "todos") arr = arr.filter((l) => statusEfetivo(l, statusManual) === filtroStatus);
     if (busca.trim()) {
       const b = norm(busca);
       arr = arr.filter((l) => norm(l.cliente).includes(b) || norm(l.cnpj).includes(b));
@@ -646,7 +654,7 @@ function MailingTab({ leads, setLeads, onUseLead }) {
       return 0;
     });
     return arr;
-  }, [leads, sortBy, busca, filtroStatus]);
+  }, [leads, sortBy, busca, filtroStatus, statusManual]);
 
   const selecionarLead = (lead) => {
     setLeadSelecionado(lead);
@@ -701,6 +709,9 @@ function MailingTab({ leads, setLeads, onUseLead }) {
               <option value="perdido">❌ Perdido ({stats.perdido})</option>
               <option value="outro">• Outro ({stats.outro})</option>
 			  <option value="sem_status">— Sem status ({stats.sem_status})</option>
+			  <option value="autorizou_whatsapp">📲 Autorizou WhatsApp ({stats.autorizou_whatsapp})</option>
+              <option value="recusou">🚫 Recusou ({stats.recusou})</option>
+              <option value="nao_atende">📵 Não atende ({stats.nao_atende})</option>
             </select>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ ...inputStyle, width: "auto", fontFamily: sans, fontSize: 12, padding: "6px 8px" }}>
               <option value="prioridade">Ordenar: prioridade de renovação</option>
@@ -725,6 +736,9 @@ function MailingTab({ leads, setLeads, onUseLead }) {
             <Stat label="Perdido" value={stats.perdido} accent={C.red} />
             <Stat label="Outro" value={stats.outro} />
 			<Stat label="Sem status" value={stats.sem_status} />
+			<Stat label="Autorizou WhatsApp" value={stats.autorizou_whatsapp} accent={C.teal} />
+            <Stat label="Recusou" value={stats.recusou} accent={C.red} />
+            <Stat label="Não atende" value={stats.nao_atende} accent={C.amber} />
           </div>
         )}
       </div>
@@ -745,7 +759,7 @@ function MailingTab({ leads, setLeads, onUseLead }) {
               <tbody>
                 {sorted.map((l, i) => {
                   const reativar = (l.linhasTotais || 0) - (l.linhasAtivas || 0);
-                  const st = statusLead(l);
+				  const st = statusEfetivo(l, statusManual);
                   return (
                     <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: leadSelecionado === l ? C.panelAlt : "transparent" }}>
                       <td style={{ padding: "7px 10px", color: C.text, fontFamily: sans, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.cliente}</td>
@@ -757,11 +771,34 @@ function MailingTab({ leads, setLeads, onUseLead }) {
                       </td>
                       <td style={{ padding: "7px 10px", color: C.textDim }}>{l.credito ? fmtBRL(l.credito) : "—"}</td>
                       <td style={{ padding: "7px 10px", color: l.creditoMensal ? C.teal : C.textFaint }}>{l.creditoMensal ? fmtBRL(l.creditoMensal) : "—"}</td>
-                      <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
-                        <span style={{ fontSize: 10, fontFamily: mono, textTransform: "uppercase", color: STATUS_BADGE[st].cor, border: `1px solid ${STATUS_BADGE[st].cor}`, borderRadius: 3, padding: "2px 6px" }}>
-                          {STATUS_BADGE[st].txt}
-                        </span>
-                      </td>
+					 <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+						<select
+						   value={st}
+						   onChange={(e) => onSetStatus && onSetStatus(l.cnpj, e.target.value)}
+						   title="Clique para atualizar o status deste cliente"
+						   style={{
+							 background: "transparent",
+							 color: STATUS_BADGE[st].cor,
+							 border: `1px solid ${STATUS_BADGE[st].cor}`,
+							 borderRadius: 3,
+							 padding: "2px 4px",
+							 fontSize: 10,
+							 fontFamily: mono,
+							 textTransform: "uppercase",
+							 cursor: "pointer",
+							 outline: "none",
+						   }}
+                     >
+                       {Object.keys(STATUS_BADGE).map((k) => (
+                         <option key={k} value={k} style={{ background: C.panelAlt, color: C.text }}>
+                           {STATUS_BADGE[k].txt}
+                         </option>
+                       ))}
+                       <option value="__limpar" style={{ background: C.panelAlt, color: C.textFaint }}>
+                         ↩️ status da planilha
+                       </option>
+                     </select>
+                   </td>
                       <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
                         <button onClick={() => selecionarLead(l)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.teal, borderRadius: 4, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: sans, whiteSpace: "nowrap", marginRight: 6 }}>
                           Script de ligação →
@@ -2502,6 +2539,7 @@ export default function App() {
   const [config, setConfig] = useState(CONFIG_PADRAO);
   const [feriadosSet, setFeriadosSet] = useState(new Set());
   const [carregandoCatalogo, setCarregandoCatalogo] = useState(true);
+  const [statusManual, setStatusManual] = useState({});
 
   React.useEffect(() => {
     (async () => {
@@ -2557,7 +2595,16 @@ export default function App() {
       }
     })();
   }, []);
-
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const resSt = await window.storage.get("status-manual-renovacao", false);
+        if (resSt?.value) setStatusManual(JSON.parse(resSt.value));
+      } catch (e) {
+        // sem status manual salvo ainda
+      }
+    })();
+  }, []);
   const salvarConfig = async (novaConfig) => {
     setConfig(novaConfig);
     try {
@@ -2583,7 +2630,17 @@ export default function App() {
     salvarPropostas(
       propostas.map((p) => (p.dataEnvio === alvo.dataEnvio && p.cnpj === alvo.cnpj ? { ...p, status } : p))
     );
-
+  const setStatusManualLead = (cnpj, chave) => {
+    setStatusManual((atual) => {
+      const key = cnpjKey(cnpj);
+      if (!key) return atual;
+      const novo = { ...atual };
+      if (chave === "__limpar") delete novo[key];
+      else novo[key] = chave;
+      window.storage.set("status-manual-renovacao", JSON.stringify(novo), false).catch(() => {});
+      return novo;
+    });
+  };
   const useLead = (lead) => {
     setPrefill(lead);
     setTab("proposta");
@@ -2641,7 +2698,7 @@ export default function App() {
         {carregandoCatalogo ? (
           <div style={{ fontSize: 13, color: C.textFaint, padding: 18 }}>Carregando catálogo salvo…</div>
         ) : tab === "mailing" ? (
-          <MailingTab leads={leads} setLeads={setLeads} onUseLead={useLead} />
+		  <MailingTab leads={leads} setLeads={setLeads} onUseLead={useLead} statusManual={statusManual} onSetStatus={setStatusManualLead} />
         ) : tab === "proposta" ? (
           <PropostaTab prefill={prefill} aparelhos={aparelhos} tv={tv} config={config} onRegistrarEnvio={registrarEnvio} />
         ) : tab === "followup" ? (
