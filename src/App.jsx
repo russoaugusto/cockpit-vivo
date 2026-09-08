@@ -545,132 +545,198 @@ function Stat({ label, value, accent, badge }) {
 
 // ---------------- Mailing tab ----------------
 
+// ---------------- Mailing tab (renovação: status, prioridade e script de ligação) ----------------
+function brNum(v) {
+  let s = (v || "").toString().trim();
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  return parseFloat(s) || 0;
+}
+function statusLead(l) {
+  const s = (l.status || "").toLowerCase();
+  if (!s) return "sem_status";
+  if (s.includes("proposta enviada")) return "proposta_enviada";
+  if (s.includes("renovado")) return "renovado";
+  if (s.includes("fiz nada") || s.includes("sem o que fazer")) return "sem_acao";
+  if (s.includes("portabilidade") || s.includes("inapta")) return "perdido";
+  return "outro";
+}
+const STATUS_BADGE = {
+  proposta_enviada: { txt: "📤 proposta enviada", cor: C.amber },
+  renovado:         { txt: "✅ renovado",         cor: C.teal },
+  sem_acao:         { txt: "⏸️ sem ação",         cor: C.textFaint },
+  perdido:          { txt: "❌ perdido",          cor: C.red },
+  outro:            { txt: "• outro",            cor: C.textDim },
+	sem_status:       { txt: "— sem status",        cor: C.textFaint },
+
+};
 function MailingTab({ leads, setLeads, onUseLead }) {
   const fileRef = useRef(null);
-  const [sortBy, setSortBy] = useState("creditoMensal");
+  const [sortBy, setSortBy] = useState("prioridade");
   const [busca, setBusca] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState("todos");
+  const [leadSelecionado, setLeadSelecionado] = useState(null);
+  const painelScriptRef = useRef(null);
 
   const handleFile = (file) => {
-    Papa.parse(file, {
-      complete: (res) => {
-        const rows = res.data.filter((r) => r.length > 1 && r.some((c) => c && c.toString().trim()));
-        if (rows.length < 2) return;
-        const headers = rows[0];
-        const parsed = rows.slice(1).map((r) => mapRow(headers, r));
-        setLeads(parsed);
-      },
-      skipEmptyLines: true,
-    });
+    const reader = new FileReader();
+    reader.onload = () => {
+      let text;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(reader.result);
+      } catch (e) {
+        text = new TextDecoder("iso-8859-1").decode(reader.result);
+      }
+      Papa.parse(text, {
+        complete: (res) => {
+          const rows = res.data.filter((r) => r.length > 1 && r.some((c) => c && c.toString().trim()));
+          if (rows.length < 2) return;
+          const headers = rows[0];
+          const idxStatus = headers.findIndex((h) => {
+		  const k = norm(h);
+		  return k.includes("STATUS") || k.includes("SITUACAO") || k.includes("ETAPA");
+		});
+		const ultimoVazio = !((headers[headers.length - 1] || "").toString().trim());
+		const idx = idxStatus >= 0 ? idxStatus : ultimoVazio ? headers.length - 1 : -1;
+		const parsed = rows.slice(1).map((r) => {
+		  const lead = mapRow(headers, r);
+		  headers.forEach((h, i) => {
+			const k = norm(h);
+			if (k.includes("CREDITO") && k.includes("MENSAL")) lead.creditoMensal = brNum(r[i]);
+			else if (k.includes("CREDITO")) lead.credito = brNum(r[i]);
+		  });
+		  lead.status = idx >= 0 ? (r[idx] || "").toString().trim() : "";
+		  return lead;
+		});
+          setLeads(parsed);
+        },
+        skipEmptyLines: true,
+      });
+    };
+    reader.readAsArrayBuffer(file);
   };
+
+  const calcularPrioridade = (lead) => {
+    let score = 0;
+    if (lead.mesesFidelidade > 24) score += 1000;
+    else if (lead.mesesFidelidade >= 17) score += 500;
+    score += (lead.creditoMensal || 0) / 100;
+    score += ((lead.linhasTotais || 0) - (lead.linhasAtivas || 0)) * 50;
+    return score;
+  };
+
+  const stats = useMemo(() => {
+    const s = { proposta_enviada: 0, renovado: 0, sem_acao: 0, perdido: 0, outro: 0, sem_status: 0 };
+    leads.forEach((l) => { s[statusLead(l)] += 1; });
+    return s;
+  }, [leads]);
 
   const sorted = useMemo(() => {
     let arr = [...leads];
+    if (filtroStatus !== "todos") arr = arr.filter((l) => statusLead(l) === filtroStatus);
     if (busca.trim()) {
       const b = norm(busca);
       arr = arr.filter((l) => norm(l.cliente).includes(b) || norm(l.cnpj).includes(b));
     }
     arr.sort((a, b) => {
+      if (sortBy === "prioridade") return calcularPrioridade(b) - calcularPrioridade(a);
       if (sortBy === "creditoMensal") return (b.creditoMensal || 0) - (a.creditoMensal || 0);
       if (sortBy === "reativacao")
-        return (b.linhasTotais - b.linhasAtivas || 0) - (a.linhasTotais - a.linhasAtivas || 0);
+        return ((b.linhasTotais || 0) - (b.linhasAtivas || 0)) - ((a.linhasTotais || 0) - (a.linhasAtivas || 0));
+      if (sortBy === "fidelidade") return (b.mesesFidelidade || 0) - (a.mesesFidelidade || 0);
       return 0;
     });
     return arr;
-  }, [leads, sortBy, busca]);
+  }, [leads, sortBy, busca, filtroStatus]);
+
+  const selecionarLead = (lead) => {
+    setLeadSelecionado(lead);
+    setTimeout(() => {
+      painelScriptRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
+
+  const scriptLigacao = useMemo(() => {
+    if (!leadSelecionado) return "";
+    const l = leadSelecionado;
+    const reativar = (l.linhasTotais || 0) - (l.linhasAtivas || 0);
+    const vencido = l.mesesFidelidade > 24;
+    const quase = l.mesesFidelidade >= 17 && l.mesesFidelidade <= 24;
+
+    let abertura = `Oi, tudo bem? Aqui é o Augusto, da Vivo Empresas. Estou ligando porque a conta da ${l.cliente} está passando por uma revisão de contrato e eu queria confirmar alguns dados com você.`;
+    let contexto = "";
+    if (vencido) {
+      contexto = `\n\nPONTO DE URGÊNCIA: o contrato de fidelidade de vocês já venceu (${l.mesesFidelidade} meses). Hoje vocês não têm permanência ativa — podem migrar quando quiserem. Por isso é o melhor momento pra travar uma condição nova antes de continuar pagando tabela cheia.`;
+    } else if (quase) {
+      contexto = `\n\nPONTO DE OPORTUNIDADE: o contrato de vocês está prestes a acabar (${l.mesesFidelidade} meses de fidelidade). Como cliente fidelizado, consigo liberar uma condição especial de renovação — quero fechar antes que ela saia do sistema.`;
+    } else {
+      contexto = `\n\nPONTO DE REVISÃO: estou passando pra revisar a conta da empresa e ver se consigo melhorar a condição atual de vocês.`;
+    }
+    let ganchos = "\n\nGANCHOS DE CONVERSA:";
+    if (l.creditoMensal > 500) ganchos += `\n- Crédito mensal de ${fmtBRL(l.creditoMensal)} — posso usar isso pra reduzir o valor por linha.`;
+    if (reativar > 0) ganchos += `\n- Vocês têm ${reativar} linha(s) inativa(s) — consigo reativar sem custo adicional.`;
+    if (l.linhasAtivas > 5) ganchos += `\n- Com ${l.linhasAtivas} linhas ativas, consigo desconto progressivo que reduz bastante o custo.`;
+    const fechamento = `\n\nFECHAMENTO: "Posso te enviar uma proposta formal por WhatsApp ou e-mail agora? Aí você analisa com calma e a gente fecha ainda essa semana."`;
+    return abertura + contexto + ganchos + fechamento;
+  }, [leadSelecionado]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div
-        style={{
-          background: C.panel,
-          border: `1px solid ${C.border}`,
-          borderRadius: 8,
-          padding: 18,
-        }}
-      >
+      <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div>
             <div style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textFaint }}>
-              Carteira do dia
+              Carteira de renovação
             </div>
             <div style={{ fontSize: 13, color: C.textDim, marginTop: 2 }}>
               {leads.length ? `${leads.length} clientes carregados` : "Nenhum mailing carregado ainda"}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar cliente ou CNPJ"
-              style={{ ...inputStyle, width: 180, fontFamily: sans, fontSize: 12, padding: "6px 8px" }}
-            />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              style={{ ...inputStyle, width: "auto", fontFamily: sans, fontSize: 12, padding: "6px 8px" }}
-            >
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar cliente ou CNPJ" style={{ ...inputStyle, width: 180, fontFamily: sans, fontSize: 12, padding: "6px 8px" }} />
+            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={{ ...inputStyle, width: "auto", fontFamily: sans, fontSize: 12, padding: "6px 8px" }}>
+              <option value="todos">Status: todos</option>
+              <option value="proposta_enviada">📤 Proposta enviada ({stats.proposta_enviada})</option>
+              <option value="sem_acao">⏸️ Sem ação ({stats.sem_acao})</option>
+              <option value="renovado">✅ Renovado ({stats.renovado})</option>
+              <option value="perdido">❌ Perdido ({stats.perdido})</option>
+              <option value="outro">• Outro ({stats.outro})</option>
+			  <option value="sem_status">— Sem status ({stats.sem_status})</option>
+            </select>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ ...inputStyle, width: "auto", fontFamily: sans, fontSize: 12, padding: "6px 8px" }}>
+              <option value="prioridade">Ordenar: prioridade de renovação</option>
+              <option value="fidelidade">Ordenar: fidelidade (meses)</option>
               <option value="creditoMensal">Ordenar: crédito mensal</option>
               <option value="reativacao">Ordenar: linhas p/ reativar</option>
             </select>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv"
-              style={{ display: "none" }}
-              onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
-            />
-            <button
-              onClick={() => fileRef.current?.click()}
-              style={{
-                background: "none",
-                border: `1px solid ${C.tealDim}`,
-                color: C.teal,
-                borderRadius: 4,
-                padding: "7px 12px",
-                fontSize: 12,
-                cursor: "pointer",
-                fontFamily: sans,
-              }}
-            >
+            <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => { const f = e.target.files[0]; if (f) handleFile(f); e.target.value = ""; }} />
+            <button onClick={() => fileRef.current?.click()} style={{ background: "none", border: `1px solid ${C.tealDim}`, color: C.teal, borderRadius: 4, padding: "7px 12px", fontSize: 12, cursor: "pointer", fontFamily: sans }}>
               Importar CSV
             </button>
           </div>
         </div>
         <div style={{ fontSize: 11, color: C.textFaint, marginTop: 8 }}>
-          Exporte o mailing do sistema como CSV e importe aqui. Colunas reconhecidas: cliente,
-          CNPJ, linhas ativas/totais, consultor, contato, crédito e crédito mensal.
+          Exporte a planilha de renovação do Excel como CSV e importe aqui. Detecta encoding, status, fidelidade e prioriza automaticamente.
         </div>
+        {leads.length > 0 && (
+          <div style={{ display: "flex", gap: 24, marginTop: 12, flexWrap: "wrap" }}>
+            <Stat label="Proposta enviada" value={stats.proposta_enviada} accent={C.amber} />
+            <Stat label="Sem ação" value={stats.sem_acao} />
+            <Stat label="Renovado" value={stats.renovado} accent={C.teal} />
+            <Stat label="Perdido" value={stats.perdido} accent={C.red} />
+            <Stat label="Outro" value={stats.outro} />
+			<Stat label="Sem status" value={stats.sem_status} />
+          </div>
+        )}
       </div>
 
       {sorted.length > 0 && (
-        <div
-          style={{
-            background: C.panel,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            padding: 0,
-            overflow: "hidden",
-          }}
-        >
+        <div style={{ background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: 0, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: mono, fontSize: 12.5 }}>
               <thead>
                 <tr style={{ background: C.panelAlt, textAlign: "left" }}>
-                  {["Cliente", "CNPJ", "Linhas", "Reativar", "Fidelidade", "Crédito", "Créd. mensal", "Contato", ""].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        padding: "8px 10px",
-                        color: C.textFaint,
-                        fontWeight: 400,
-                        fontFamily: sans,
-                        fontSize: 10.5,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
-                        borderBottom: `1px solid ${C.border}`,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
+                  {["Cliente", "CNPJ", "Linhas", "Reativar", "Fidelidade", "Crédito", "Créd. mensal", "Status", ""].map((h) => (
+                    <th key={h} style={{ padding: "8px 10px", color: C.textFaint, fontWeight: 400, fontFamily: sans, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.border}`, whiteSpace: "nowrap" }}>
                       {h}
                     </th>
                   ))}
@@ -679,44 +745,29 @@ function MailingTab({ leads, setLeads, onUseLead }) {
               <tbody>
                 {sorted.map((l, i) => {
                   const reativar = (l.linhasTotais || 0) - (l.linhasAtivas || 0);
+                  const st = statusLead(l);
                   return (
-                    <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: "7px 10px", color: C.text, fontFamily: sans, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {l.cliente}
-                      </td>
+                    <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: leadSelecionado === l ? C.panelAlt : "transparent" }}>
+                      <td style={{ padding: "7px 10px", color: C.text, fontFamily: sans, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.cliente}</td>
                       <td style={{ padding: "7px 10px", color: C.textDim }}>{l.cnpj}</td>
-                      <td style={{ padding: "7px 10px", color: C.textDim }}>
-                        {l.linhasAtivas ?? "—"}/{l.linhasTotais ?? "—"}
-                      </td>
-                      <td style={{ padding: "7px 10px", color: reativar > 0 ? C.amber : C.textFaint }}>
-                        {reativar > 0 ? `+${reativar}` : "—"}
-                      </td>
-                      <td style={{ padding: "7px 10px", color: C.textDim }}>
+                      <td style={{ padding: "7px 10px", color: C.textDim }}>{l.linhasAtivas ?? "—"}/{l.linhasTotais ?? "—"}</td>
+                      <td style={{ padding: "7px 10px", color: reativar > 0 ? C.amber : C.textFaint }}>{reativar > 0 ? `+${reativar}` : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: l.mesesFidelidade > 24 ? C.red : l.mesesFidelidade >= 17 ? C.amber : C.textDim }}>
                         {l.mesesFidelidade != null ? `${l.mesesFidelidade}m` : "—"}
                       </td>
-                      <td style={{ padding: "7px 10px", color: C.textDim }}>
-                        {l.credito ? fmtBRL(l.credito) : "—"}
+                      <td style={{ padding: "7px 10px", color: C.textDim }}>{l.credito ? fmtBRL(l.credito) : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: l.creditoMensal ? C.teal : C.textFaint }}>{l.creditoMensal ? fmtBRL(l.creditoMensal) : "—"}</td>
+                      <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 10, fontFamily: mono, textTransform: "uppercase", color: STATUS_BADGE[st].cor, border: `1px solid ${STATUS_BADGE[st].cor}`, borderRadius: 3, padding: "2px 6px" }}>
+                          {STATUS_BADGE[st].txt}
+                        </span>
                       </td>
-                      <td style={{ padding: "7px 10px", color: l.creditoMensal ? C.teal : C.textFaint }}>
-                        {l.creditoMensal ? fmtBRL(l.creditoMensal) : "—"}
-                      </td>
-                      <td style={{ padding: "7px 10px", color: C.textDim }}>{l.telefone}</td>
-                      <td style={{ padding: "7px 10px" }}>
-                        <button
-                          onClick={() => onUseLead(l)}
-                          style={{
-                            background: "none",
-                            border: `1px solid ${C.border}`,
-                            color: C.teal,
-                            borderRadius: 4,
-                            padding: "4px 8px",
-                            fontSize: 11,
-                            cursor: "pointer",
-                            fontFamily: sans,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Usar na proposta →
+                      <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+                        <button onClick={() => selecionarLead(l)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.teal, borderRadius: 4, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: sans, whiteSpace: "nowrap", marginRight: 6 }}>
+                          Script de ligação →
+                        </button>
+                        <button onClick={() => onUseLead(l)} style={{ background: "none", border: `1px solid ${C.tealDim}`, color: C.teal, borderRadius: 4, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: sans, whiteSpace: "nowrap" }}>
+                          Proposta →
                         </button>
                       </td>
                     </tr>
@@ -725,6 +776,15 @@ function MailingTab({ leads, setLeads, onUseLead }) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {leadSelecionado && (
+        <div ref={painelScriptRef} style={{ background: C.panel, border: `1px solid ${C.tealDim}`, borderRadius: 8, padding: 18, scrollMarginTop: 16 }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.textFaint, marginBottom: 12 }}>
+            Script de ligação — {leadSelecionado.cliente}
+          </div>
+          <MessageCard title="Roteiro de conversa" text={scriptLigacao} whatsappPhone={leadSelecionado.telefone} />
         </div>
       )}
     </div>
