@@ -1062,6 +1062,25 @@ function PropostaTab({ prefill, aparelhos, tv, config, onRegistrarEnvio }) {
 
     const temComparacao = vt > 0 || vp > 0;
     const economiaAnual = economia && economia > 0 ? economia * 12 : null;
+	
+	  const custoLinhaAtual = nl > 0 ? vt / nl : 0;
+	  const custoLinhaProp = nql > 0 ? vp / nql : 0;
+	  let hero = "revisao";
+	  let heroTxt = "uma condição melhor pra sua conta atual";
+	  if (linhasCortesia > 0) {
+		hero = "cortesia";
+		heroTxt = `${linhasCortesia} linha${linhasCortesia > 1 ? "s" : ""} de cortesia, sem custo`;
+	  } else if (nf > fc && vp > 0 && vp <= vt) {
+		hero = "franquia";
+		heroTxt = `franquia de ${fc}GB pra ${nf}GB pagando o mesmo ou menos`;
+	  } else if (custoLinhaAtual > 0 && custoLinhaProp > 0 && custoLinhaProp < custoLinhaAtual * 0.9) {
+		hero = "custolinha";
+		heroTxt = `valor por linha caindo de ${fmtBRL(custoLinhaAtual)} pra ${fmtBRL(custoLinhaProp)}`;
+	  } else if (economia > 0) {
+		hero = "economia";
+		heroTxt = `economia de ${fmtBRL(economia)} por mês`;
+	  }
+	  const economiaFraca = economia > 0 && economia < 20 && hero !== "economia";
 
     // Quadro do que a empresa já tem hoje, pra credibilidade antes da proposta
     const portfolioAtual = [];
@@ -1108,6 +1127,11 @@ function PropostaTab({ prefill, aparelhos, tv, config, onRegistrarEnvio }) {
       telefoneFixoNumeros,
       temComparacao,
       economiaAnual,
+	  hero,
+	  heroTxt,
+      economiaFraca,
+      custoLinhaAtual,
+      custoLinhaProp,
       portfolioAtual,
       jaTemLista,
       ofertasLista,
@@ -1132,99 +1156,99 @@ function PropostaTab({ prefill, aparelhos, tv, config, onRegistrarEnvio }) {
   ]);
 
   const aberturaMsg = useMemo(() => {
-    const nome = contatoNome || "[nome do contato]";
-    const empresa = razao || "[razão social]";
-    const assinatura = config.nomeConsultor ? `Aqui é o ${config.nomeConsultor}, da ${config.nomeEmpresa}` : `Aqui é da ${config.nomeEmpresa}`;
-    return `Oi ${nome}, tudo bem? ${assinatura}. Tava revisando a conta da ${empresa} aqui no sistema e vi que dá pra reduzir bastante o custo das linhas de vocês, aproveitando o tempo que já são clientes. Você é quem cuida da parte de telefonia aí, ou tem outra pessoa que eu falo?`;
+	const nome = contatoNome || "[nome do contato]";
+	const empresa = razao || "[razão social]";
+	const assinatura = config.nomeConsultor ? `Aqui é o ${config.nomeConsultor}, da ${config.nomeEmpresa}` : `Aqui é da ${config.nomeEmpresa}`;
+	return `Oi ${nome}, tudo bem? ${assinatura}. Tava revisando a conta da ${empresa} aqui no sistema e vi que dá pra reduzir bastante o custo das linhas de vocês, aproveitando o tempo que já são clientes. Você é quem cuida da parte de telefonia aí, ou tem outra pessoa que eu falo?`;
   }, [contatoNome, razao, config]);
 
   const emailMsg = useMemo(() => {
-    const nome = contatoNome;
-    let corpo = nome ? `Olá, ${nome}! Tudo bem?\n\n` : `Olá! Tudo bem?\n\n`;
+  const nome = contatoNome;
+  const empresa = razao || "[razão social]";
+  const consultor = config.nomeConsultor || `consultor da ${config.nomeEmpresa}`;
+  let corpo = nome ? `Olá, ${nome}! Tudo bem?\n\n` : `Olá! Tudo bem?\n\n`;
 
-    if (tentouWhatsapp) {
-      corpo += `Tentei falar com vocês por WhatsApp, mas não tive retorno — por isso resolvi escrever por aqui também.\n\n`;
-    }
+  corpo += `Sou o ${consultor} e cuido da conta da ${empresa} aqui na ${config.nomeEmpresa}. `;
+  if (blocos.estagio === "vencido") {
+	corpo += `O contrato de fidelidade de vocês já venceu — na prática, vocês estão pagando tabela cheia sem nenhum benefício de cliente antigo. Por isso corri atrás de uma condição especial pra virar esse jogo:\n\n`;
+  } else if (blocos.estagio === "elegivel") {
+	corpo += `Vocês têm ${fid} meses de casa, e essa fidelidade tem peso: consegui liberar uma condição especial de renovação antes que ela saia do sistema:\n\n`;
+  } else if (blocos.estagio === "aquecendo") {
+	corpo += `Revisando a conta linha por linha, encontrei uma melhoria que já vale hoje, sem esperar nenhum vencimento:\n\n`;
+  } else {
+	corpo += `Revisando a conta linha por linha, encontrei uma forma de melhorar a condição atual de vocês:\n\n`;
+  }
 
-    if (blocos.estagio === "vencido") {
-      corpo += `Seu contrato de fidelidade já venceu. Isso significa que hoje vocês não têm mais nenhuma permanência ativa — podem migrar quando quiserem, e também é o melhor momento pra travar uma condição nova antes de continuar pagando tabela cheia:\n\n`;
-    } else if (blocos.estagio === "elegivel") {
-      corpo += `Seu contrato está prestes a acabar. Como cliente fidelizado, consegui liberar uma condição especial de renovação pra vocês — quero fechar isso antes que ela saia do sistema.\n\n`;
-    } else if (blocos.estagio === "aquecendo") {
-      corpo += `Estou passando pra te mostrar uma oportunidade que já reduz seu custo hoje, sem você precisar esperar nada:\n\n`;
-    } else {
-      corpo += `Revisando a conta da sua empresa, encontrei uma forma de melhorar sua condição atual:\n\n`;
-    }
+  corpo += `O destaque da proposta: ${blocos.heroTxt}.\n\n`;
 
-    if (linhasCortesia > 0) {
-      corpo += `A proposta inclui ${linhasCortesia} linha(s) de cortesia, sem custo adicional, reduzindo o valor por linha.\n\n`;
-    }
+  if (blocos.temComparacao) {
+	const quadro = montarQuadroResumo({
+	  portfolioAtual: blocos.portfolioAtual,
+	  linhasComparativo: [
+		["Linhas", `${nl || "?"}`, `${nql || "?"}${linhasCortesia > 0 ? ` (+${linhasCortesia})` : ""}`],
+		["Franquia", `${fc || "?"}GB`, `${nf || "?"}GB`],
+		["Valor", vt ? fmtBRL(vt) : "?", vp ? fmtBRL(vp) : "?"],
+	  ],
+	  economiaTxt: "",
+	});
+	corpo += quadro + "\n\n";
+  } else if (blocos.portfolioAtual.length > 0) {
+	corpo += `Hoje sua empresa tem com a gente:\n`;
+	blocos.portfolioAtual.forEach((item) => (corpo += `${item.icone}  ${item.texto}\n`));
+	corpo += `\n`;
+  }
 
-    if (blocos.temComparacao) {
-      const quadro = montarQuadroResumo({
-        portfolioAtual: blocos.portfolioAtual,
-        linhasComparativo: [
-          ["Linhas", `${nl || "?"}`, `${nql || "?"}${linhasCortesia > 0 ? ` (+${linhasCortesia})` : ""}`],
-          ["Franquia", `${fc || "?"}GB`, `${nf || "?"}GB`],
-          ["Valor", vt ? fmtBRL(vt) : "?", vp ? fmtBRL(vp) : "?"],
-        ],
-        economiaTxt: blocos.economiaAnual
-          ? `Você economiza ${fmtBRL(economia)}/mês — ${fmtBRL(blocos.economiaAnual)} ao longo de um ano`
-          : "",
-      });
-      corpo += quadro + "\n\n";
-    } else if (blocos.portfolioAtual.length > 0) {
-      corpo += `Hoje sua empresa tem com a gente:\n`;
-      blocos.portfolioAtual.forEach((item) => (corpo += `${item.icone}  ${item.texto}\n`));
-      corpo += `\n`;
-    }
+  if (blocos.hero === "custolinha") {
+	corpo += `O valor total muda pouco — a diferença está no custo por linha, que cai de ${fmtBRL(blocos.custoLinhaAtual)} para ${fmtBRL(blocos.custoLinhaProp)}.\n\n`;
+  } else if (blocos.economiaFraca) {
+	corpo += `O valor total muda pouco — o salto está no que vocês passam a receber por ele.\n\n`;
+  } else if (economia > 0 && blocos.economiaAnual) {
+	corpo += `Em dinheiro: ${fmtBRL(economia)} a menos por mês — ${fmtBRL(blocos.economiaAnual)} ao longo de um ano.\n\n`;
+  }
 
-    if (blocos.jaTemLista.length > 0) {
-      corpo += `Além disso, vocês já são clientes fiéis também em ${joinNatural(blocos.jaTemLista)} — isso conta a favor da condição especial que consegui pra vocês.\n\n`;
-    }
+  if (blocos.jaTemLista.length > 0) {
+	corpo += `E pesa a favor de vocês: já são clientes fiéis também em ${joinNatural(blocos.jaTemLista)} — isso entra no cálculo da condição.\n\n`;
+  }
 
-    if (blocos.ofertasLista.length > 0) {
-      corpo += `E já que essa fidelidade toda ajuda, separei um combo pra vocês economizarem ainda mais: incluindo ${joinNatural(blocos.ofertasLista)} na proposta, consigo aumentar o desconto. Topa que eu já cote isso junto?\n\n`;
-    }
+  if (blocos.ofertasLista.length > 0) {
+	corpo += `Se fizer sentido, consigo incluir ${joinNatural(blocos.ofertasLista)} no mesmo contrato e aumentar o desconto. Quer que eu cote junto?\n\n`;
+  }
 
-    if (blocos.aparelhoOferta === "disponivel") {
-      corpo += `No caso do aparelho, você tem ${fmtBRL(limiteNum)} em limite de crédito. Já separei estas opções dentro desse limite:\n`;
-      aparelhosDisponiveis.forEach((a) => {
-        const partes = [];
-        if (a.cabe10x) partes.push(`10x de ${fmtBRL(a.parcela10x)} (total ${fmtBRL(a.total10)})`);
-        if (a.cabe24x) partes.push(`24x de ${fmtBRL(a.parcela24x)} (total ${fmtBRL(a.total24)})`);
-        corpo += `- ${a.nome}${partes.length ? `: ${partes.join(" ou ")}` : ""}\n`;
-      });
-      corpo += `\n`;
-    } else if (blocos.aparelhoOferta === "indisponivel") {
-      corpo += `Sobre o aparelho: você tem ${fmtBRL(limiteNum)} em limite de crédito, mas nenhum modelo do catálogo atual coube nesse valor — me diga se tem preferência de marca que eu vejo alternativas.\n\n`;
-    }
+  if (blocos.aparelhoOferta === "disponivel") {
+	corpo += `Com o limite de crédito de ${fmtBRL(limiteNum)}, já deixei separadas estas opções de aparelho:\n`;
+	aparelhosDisponiveis.forEach((a) => {
+	  const partes = [];
+	  if (a.cabe10x) partes.push(`10x de ${fmtBRL(a.parcela10x)} (total ${fmtBRL(a.total10)})`);
+	  if (a.cabe24x) partes.push(`24x de ${fmtBRL(a.parcela24x)} (total ${fmtBRL(a.total24)})`);
+	  corpo += `- ${a.nome}${partes.length ? `: ${partes.join(" ou ")}` : ""}\n`;
+	});
+	corpo += `\n`;
+  } else if (blocos.aparelhoOferta === "indisponivel") {
+	corpo += `Sobre aparelho: vocês têm ${fmtBRL(limiteNum)} de limite, mas nenhum modelo do catálogo atual coube nele — me diga uma marca de preferência que eu busco alternativas.\n\n`;
+  }
 
-    if (blocos.bandaLargaStatus === "com_cobertura") {
-      const endTxt = endereco?.resumo ? ` (${endereco.resumo})` : "";
-      corpo += `Sobre a banda larga: identifiquei cobertura de ${config.nomeInternetFixa} confirmada no endereço da sua empresa${endTxt}.\n\n`;
-    } else if (blocos.bandaLargaStatus === "sem_cobertura") {
-      const endTxt = endereco?.resumo ? ` (${endereco.resumo})` : "";
-      corpo += `Sobre a banda larga: no endereço cadastrado${endTxt} ainda não identifiquei cobertura de ${config.nomeInternetFixa}. `;
-      corpo += enderecoAlternativo?.resumo
-        ? `Já verifiquei o endereço que você me passou (${enderecoAlternativo.resumo}) e vou confirmar viabilidade por lá também.\n\n`
-        : `Se tiver outra filial ou endereço, me envie o CEP que eu checo.\n\n`;
-    }
+  if (blocos.bandaLargaStatus === "com_cobertura") {
+	const endTxt = endereco?.resumo ? ` (${endereco.resumo})` : "";
+	corpo += `Sobre internet fixa: identifiquei cobertura ${config.nomeInternetFixa} no endereço da empresa${endTxt} — dá pra trazer pra mesma fatura e somar desconto.\n\n`;
+  } else if (blocos.bandaLargaStatus === "sem_cobertura") {
+	const endTxt = endereco?.resumo ? ` (${endereco.resumo})` : "";
+	corpo += `Sobre internet fixa: no endereço cadastrado${endTxt} ainda não identifiquei cobertura ${config.nomeInternetFixa}. `;
+	corpo += enderecoAlternativo?.resumo
+	  ? `Já anotei o endereço alternativo (${enderecoAlternativo.resumo}) e vou confirmar viabilidade por lá.\n\n`
+	  : `Se houver outra filial, me envie o CEP que eu verifico.\n\n`;
+  }
 
-    if (ofertarPortabilidade) {
-      corpo += `Se vocês tiverem alguma linha ativa em outra operadora, também consigo portar o número pra Vivo sem burocracia nenhuma pro usuário — só me passar a operadora atual e a quantidade que já incluo isso na proposta.\n\n`;
-    }
+  if (ofertarPortabilidade) {
+	corpo += `Ah, e se houver linha ativa em outra operadora, porto pra Vivo sem burocrácia nenhuma pro usuário — é só me dizer operadora e quantidade.\n\n`;
+  }
 
-    corpo += prazoOferta
-      ? `Essa condição fica reservada até ${prazoOferta}. Depois disso, o valor volta à tabela vigente.\n\n`
-      : `Vou manter essa condição reservada até o fim da semana.\n\n`;
-
-    corpo +=
-      blocos.estagio === "aquecendo"
-        ? `Já deixo o link pronto pra essa parte que já vale hoje. Prefere que eu envie agora, ou quer me ligar antes pra entender melhor?`
-        : `Já deixo o link de confirmação pronto pra você. Prefere que eu envie agora mesmo, ou quer me ligar antes pra tirar alguma dúvida sobre os números?`;
-    return corpo;
-  }, [contatoNome, fid, mesesParaElegibilidade, blocos, linhasCortesia, nl, fc, vt, nql, nf, vp, limiteNum, aparelhosDisponiveis, economia, prazoOferta, config, endereco, enderecoAlternativo, ofertarPortabilidade, tentouWhatsapp]);
+  corpo += prazoOferta
+	? `Essa condição fica reservada até ${prazoOferta}.\n\n`
+	: `Vou manter essa condição reservada até o fim da semana.\n\n`;
+  corpo += `Pra aceitar, é só responder este e-mail com "CONFIRMO" — eu cuido de todo o resto. Prefere ver os números comigo antes? Responda por aqui ou me chame no WhatsApp que eu ligo.\n\n`;
+  corpo += `PS: se preferir, agendo 5 minutos de ligação pra passar tudo em voz — me diga o melhor horário.`;
+  return corpo;
+}, [contatoNome, razao, fid, blocos, linhasCortesia, nl, fc, nf, vt, vp, nql, limiteNum, aparelhosDisponiveis, economia, prazoOferta, config, endereco, enderecoAlternativo, ofertarPortabilidade]);
 
   const quadroResumoHtml = useMemo(() => {
     if (!blocos.temComparacao) return null;
@@ -1240,93 +1264,80 @@ function PropostaTab({ prefill, aparelhos, tv, config, onRegistrarEnvio }) {
         : "",
     });
   }, [blocos, nl, fc, vt, nql, nf, vp, linhasCortesia, economia]);
+  
+  const assuntoEmail = useMemo(() => {
+	  const primeira = (razao || "").trim().split(/\s+/)[0] || "Sua empresa";
+	  const prazo = prazoOferta || "sexta";
+	  if (blocos.hero === "cortesia") return `${primeira}: ${linhasCortesia} linha(s) de cortesia na renovação (reserva até ${prazo})`;
+	  if (blocos.hero === "franquia") return `${primeira}: mais franquia pagando o mesmo — condição reservada até ${prazo}`;
+	  if (blocos.hero === "custolinha") return `${primeira}: valor por linha menor na nova condição Vivo`;
+	  if (blocos.hero === "economia") return `${primeira}: ${fmtBRL(economia)}/mês de economia na renovação`;
+	  return `${primeira}: condição especial de cliente Vivo reservada pra vocês`;
+	}, [razao, prazoOferta, blocos, linhasCortesia, economia]);
 
   const whatsMsg = useMemo(() => {
-    const empresa = razao || "[razão social]";
-    let corpo = contatoNome
-      ? `Olá, ${contatoNome}! Aqui é da ${config.nomeEmpresa} falando sobre a conta da *${empresa}*.\n\n`
-      : `Olá! Aqui é da ${config.nomeEmpresa} falando sobre a conta da *${empresa}*.\n\n`;
+	  const empresa = razao || "[razão social]";
+	  const consultor = config.nomeConsultor || "da " + config.nomeEmpresa;
+	  let corpo = contatoNome
+		? `Oi ${contatoNome}! Aqui é o ${consultor} — cuido da conta da *${empresa}*.\n\n`
+		: `Olá! Aqui é ${consultor}, falando sobre a conta da *${empresa}*.\n\n`;
 
-    if (blocos.estagio === "vencido") {
-      corpo += `Seu contrato de fidelidade já venceu — hoje vocês não têm contrato de permanência ativo, podem migrar quando quiserem. Por isso é um ótimo momento pra travar uma condição nova:\n\n`;
-    } else if (blocos.estagio === "elegivel") {
-      corpo += `Seu contrato está prestes a acabar — já consegui liberar uma condição especial de renovação. Bora fechar isso antes que ela saia do sistema?\n\n`;
-    } else if (blocos.estagio === "aquecendo") {
-      corpo += `Separei uma condição que já reduz seu custo hoje, sem você precisar esperar nada:\n\n`;
-    } else {
-      corpo += `Revisando sua conta, achei uma forma de melhorar sua condição atual:\n\n`;
-    }
+	  if (blocos.estagio === "vencido") {
+		corpo += `O contrato de fidelidade de vocês venceu — hoje pagam tabela cheia sem benefício de cliente antigo. Corri atrás de uma condição pra virar esse jogo:\n\n`;
+	  } else if (blocos.estagio === "elegivel") {
+		corpo += `Vocês têm ${fid} meses de casa e essa fidelidade vale: liberei uma condição especial de renovação:\n\n`;
+	  } else if (blocos.estagio === "aquecendo") {
+		corpo += `Revisei a conta linha por linha e achei uma melhoria que já vale hoje:\n\n`;
+	  } else {
+		corpo += `Revisei a conta e achei uma forma de melhorar a condição atual de vocês:\n\n`;
+	  }
 
-    if (linhasCortesia > 0) {
-      corpo += `A proposta inclui ${linhasCortesia} linha(s) de cortesia (sem custo), reduzindo o valor por linha.\n\n`;
-    }
+	  corpo += `*O destaque: ${blocos.heroTxt}.*\n\n`;
 
-    if (blocos.temComparacao) {
-      const quadro = montarQuadroResumo({
-        portfolioAtual: blocos.portfolioAtual,
-        linhasComparativo: [
-          ["Linhas", `${nl || "?"}`, `${nql || "?"}${linhasCortesia > 0 ? ` (+${linhasCortesia})` : ""}`],
-          ["Franquia", `${fc || "?"}GB`, `${nf || "?"}GB`],
-          ["Valor", vt ? fmtBRL(vt) : "?", vp ? fmtBRL(vp) : "?"],
-        ],
-        economiaTxt: blocos.economiaAnual
-          ? `Você economiza ${fmtBRL(economia)}/mês — ${fmtBRL(blocos.economiaAnual)} no ano`
-          : "",
-        usarIcones: false,
-      });
-      corpo += "```" + quadro + "```\n\n";
-    } else if (blocos.portfolioAtual.length > 0) {
-      corpo += `*Hoje vocês têm com a gente:*\n`;
-      blocos.portfolioAtual.forEach((item) => (corpo += `- ${item.texto}\n`));
-      corpo += `\n`;
-    }
+	  if (blocos.temComparacao) {
+		const quadro = montarQuadroResumo({
+		  portfolioAtual: blocos.portfolioAtual,
+		  linhasComparativo: [
+			["Linhas", `${nl || "?"}`, `${nql || "?"}${linhasCortesia > 0 ? ` (+${linhasCortesia})` : ""}`],
+			["Franquia", `${fc || "?"}GB`, `${nf || "?"}GB`],
+			["Valor", vt ? fmtBRL(vt) : "?", vp ? fmtBRL(vp) : "?"],
+		  ],
+		  economiaTxt: "",
+		  usarIcones: false,
+		});
+		corpo += "```" + quadro + "```\n\n";
+	  } else if (blocos.portfolioAtual.length > 0) {
+		corpo += `*Hoje vocês têm com a gente:*\n`;
+		blocos.portfolioAtual.forEach((item) => (corpo += `- ${item.texto}\n`));
+		corpo += `\n`;
+	  }
 
-    if (blocos.jaTemLista.length > 0) {
-      corpo += `Além disso, vocês já são clientes fiéis também em ${joinNatural(blocos.jaTemLista)} — isso conta a favor da condição especial que consegui pra vocês.\n\n`;
-    }
+	  if (blocos.hero === "custolinha") {
+		corpo += `O total muda pouco — o ganho está no custo por linha, caindo de ${fmtBRL(blocos.custoLinhaAtual)} pra ${fmtBRL(blocos.custoLinhaProp)}.\n\n`;
+	  } else if (blocos.economiaFraca) {
+		corpo += `O total muda pouco — o salto está no que vocês passam a receber por ele.\n\n`;
+	  } else if (economia > 0 && blocos.economiaAnual) {
+		corpo += `Em dinheiro: *${fmtBRL(economia)}/mês* — ${fmtBRL(blocos.economiaAnual)} no ano.\n\n`;
+	  }
 
-    if (blocos.ofertasLista.length > 0) {
-      corpo += `E já que essa fidelidade toda ajuda, separei um combo pra vocês economizarem ainda mais: incluindo ${joinNatural(blocos.ofertasLista)} na proposta, consigo aumentar o desconto. Topa que eu já cote isso junto?\n\n`;
-    }
+	  if (blocos.ofertasLista.length > 0) {
+		corpo += `Consigo incluir ${joinNatural(blocos.ofertasLista)} no mesmo contrato e aumentar o desconto. Coto junto?\n\n`;
+	  }
 
-    if (blocos.aparelhoOferta === "disponivel") {
-      corpo += `No caso do aparelho, você tem *${fmtBRL(limiteNum)}* em limite de crédito. Já separei pra você:\n`;
-      aparelhosDisponiveis.forEach((a) => {
-        const partes = [];
-        if (a.cabe10x) partes.push(`10x R$ ${a.parcela10x.toFixed(2).replace(".", ",")} (total ${fmtBRL(a.total10)})`);
-        if (a.cabe24x) partes.push(`24x R$ ${a.parcela24x.toFixed(2).replace(".", ",")} (total ${fmtBRL(a.total24)})`);
-        corpo += `- *${a.nome}:* ${partes.join(" / ")}\n`;
-      });
-      corpo += `\n`;
-    } else if (blocos.aparelhoOferta === "indisponivel") {
-      corpo += `Sobre o aparelho: você tem *${fmtBRL(limiteNum)}* de limite, mas nenhum modelo do catálogo atual coube nesse valor — me diz se tem alguma marca de preferência que eu vejo opção.\n\n`;
-    }
+	  if (blocos.bandaLargaStatus === "com_cobertura") {
+		corpo += `E tem cobertura ${config.nomeInternetFixa} no endereço de vocês — dá pra somar na mesma fatura com desconto.\n\n`;
+	  } else if (blocos.bandaLargaStatus === "sem_cobertura") {
+		corpo += `Sobre internet fixa: ainda não confirmei cobertura no endereço de vocês — me manda um CEP alternativo se tiver filial.\n\n`;
+	  }
 
-    if (blocos.bandaLargaStatus === "com_cobertura") {
-      const endTxt = endereco?.resumo ? ` (${endereco.resumo})` : "";
-      corpo += `Sobre a banda larga: temos cobertura confirmada no endereço da sua empresa${endTxt}.\n\n`;
-    } else if (blocos.bandaLargaStatus === "sem_cobertura") {
-      const endTxt = endereco?.resumo ? ` (${endereco.resumo})` : "";
-      corpo += `Sobre a banda larga: no endereço cadastrado${endTxt} ainda não identifiquei cobertura. `;
-      corpo += enderecoAlternativo?.resumo
-        ? `Já anotei o endereço que você passou (${enderecoAlternativo.resumo}) e vou confirmar viabilidade por lá também.\n\n`
-        : `Se tiver outro endereço/filial, me manda o CEP que eu checo.\n\n`;
-    }
+	  if (ofertarPortabilidade) {
+		corpo += `Ah, e se tiver linha em outra operadora, porto pra Vivo sem burocracia.\n\n`;
+	  }
 
-    if (ofertarPortabilidade) {
-      corpo += `Se vocês tiverem alguma linha ativa em outra operadora, também consigo portar o número pra Vivo sem burocracia pro usuário — só me passar a operadora atual e a quantidade que já incluo na proposta.\n\n`;
-    }
-
-    corpo += prazoOferta
-      ? `Essa condição fica reservada até *${prazoOferta}*.\n\n`
-      : `Vou manter essa condição reservada até o fim da semana.\n\n`;
-
-    corpo +=
-      blocos.estagio === "aquecendo"
-        ? `Já deixo o link pronto pra essa parte que já vale hoje. Fecho por aqui ou prefere que eu ligue rapidinho?`
-        : `Já vou deixando o link de confirmação pronto. Fecha por aqui mesmo ou prefere que eu te ligue rapidinho antes?`;
-    return corpo;
-  }, [razao, contatoNome, fid, mesesParaElegibilidade, blocos, linhasCortesia, nl, fc, vt, nql, nf, vp, limiteNum, aparelhosDisponiveis, economia, prazoOferta, config, endereco, enderecoAlternativo, ofertarPortabilidade]);
+	  corpo += prazoOferta ? `Condição reservada até *${prazoOferta}*.\n\n` : `Condição reservada até o fim da semana.\n\n`;
+	  corpo += `Pra aceitar, é só me mandar *CONFIRMO* aqui. Prefere 5 minutinhos de ligação antes?`;
+	  return corpo;
+	}, [razao, contatoNome, fid, blocos, linhasCortesia, nl, fc, nf, vt, vp, nql, economia, prazoOferta, config, ofertarPortabilidade]);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 380px) 1fr", gap: 16 }}>
@@ -1702,7 +1713,7 @@ function PropostaTab({ prefill, aparelhos, tv, config, onRegistrarEnvio }) {
           completo depois que a pessoa responder.
         </div>
 
-        <MessageCard title="Rascunho de e-mail" text={emailMsg} tabelaHtml={quadroResumoHtml} />
+             <MessageCard title="Rascunho de e-mail" text={emailMsg} tabelaHtml={quadroResumoHtml} assunto={assuntoEmail} />
         <MessageCard title="Rascunho de WhatsApp" text={whatsMsg} whatsappPhone={contatoFone} />
         <div style={{ fontSize: 11, color: C.textFaint, padding: "0 4px" }}>
           Rascunhos escritos como oferta (não como exigência do sistema). Revise antes de
@@ -1785,14 +1796,20 @@ function PropostaTab({ prefill, aparelhos, tv, config, onRegistrarEnvio }) {
   );
 }
 
-function MessageCard({ title, text, whatsappPhone, tabelaHtml }) {
+function MessageCard({ title, text, whatsappPhone, tabelaHtml, assunto }) {
   const [status, setStatus] = useState("idle");
   const [statusTabela, setStatusTabela] = useState("idle");
+  const [statusAssunto, setStatusAssunto] = useState("idle");
   const copy = async () => {
     const ok = await copiarTexto(text);
     setStatus(ok ? "ok" : "erro");
     setTimeout(() => setStatus("idle"), 1800);
   };
+	const copiarAssunto = async () => {
+		const ok = await copiarTexto(assunto);
+		setStatusAssunto(ok ? "ok" : "erro");
+		setTimeout(() => setStatusAssunto("idle"), 1800);
+	};
   const copiarTabela = async () => {
     const ok = await copiarHtmlRico(tabelaHtml, text);
     setStatusTabela(ok ? "ok" : "erro");
@@ -1835,6 +1852,15 @@ function MessageCard({ title, text, whatsappPhone, tabelaHtml }) {
           </button>
         </div>
       </div>
+	  {assunto && (
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: C.textFaint, fontFamily: sans }}>Assunto</span>
+        <span style={{ fontSize: 12, color: C.teal, fontFamily: mono, flex: 1, minWidth: 200 }}>{assunto}</span>
+        <button onClick={copiarAssunto} style={{ background: "none", border: `1px solid ${statusAssunto === "erro" ? C.amber : C.tealDim}`, color: statusAssunto === "erro" ? C.amber : C.teal, borderRadius: 4, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: sans }}>
+          {statusAssunto === "ok" ? "Copiado" : "Copiar assunto"}
+        </button>
+      </div>
+    )}
       <div style={{ background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: 12, fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", color: C.text }}>
         {text}
       </div>
